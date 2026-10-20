@@ -1,0 +1,11 @@
+build/
+*.o
+*.d
+*.elf
+*.hex
+*.map
+*.lss
+*.eep
+.cache/
+.vscode/.browse.VC.db*
+*.swp

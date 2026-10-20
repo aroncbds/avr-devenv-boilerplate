@@ -1,0 +1,31 @@
+{
+  "name": "AVR ATmega2560",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "workspaceFolder": "/workspace",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
+  "postCreateCommand": "make all",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode.cpptools",
+        "ms-vscode.makefile-tools"
+      ],
+      "settings": {
+        "C_Cpp.default.compilerPath": "/usr/bin/avr-gcc",
+        "C_Cpp.default.cStandard": "c99",
+        "C_Cpp.default.intelliSenseMode": "gcc-x64",
+        "C_Cpp.default.compilerArgs": [
+          "-mmcu=atmega2560",
+          "-std=c99"
+        ]
+      }
+    }
+  },
+  // USB is not mounted by default: this WSL environment has no /dev/bus/usb
+  // until a device is attached, and a missing mount stops the container.
+  // After `usbipd attach --wsl`, uncomment both lines and rebuild the container.
+  // "runArgs": ["--privileged"],
+  // "mounts": ["source=/dev/bus/usb,target=/dev/bus/usb,type=bind"]
+}
