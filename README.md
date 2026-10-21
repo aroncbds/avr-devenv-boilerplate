@@ -129,21 +129,21 @@ writes high fuse `0x18`. That enables OCD and JTAG, leaves SPI programming enabl
 
 Dragon 10-pin JTAG, looking at the plug: 1 TCK, 2 GND, 3 TDO, 4 VTref, 5 TMS, 6 nSRST, 7 VCC, 9 TDI, 10 GND. Pin 8 (nTRST) is not used on this AVR. VTref and VCC go to 5 V.
 
-`tools/99-avr-dragon.rules` is the udev rule for USB id `03eb:2107`. On WSL the usbip node is often root-owned; the container runs as root, so the rule matters on a native Linux host.
+`tools/99-avr-dragon.rules` is the udev rule for USB id `03eb:2107`. On WSL the usbip node is often root-owned; the container runs as root, so the rule matters on a native Linux host. Attach the Dragon with the same `usbipd` commands as the serial board, to the distro that runs Docker. AVaRICE opens it through `/dev/bus/usb`, which this container has only after **Dev Containers: Rebuild Container**.
 
-Debug does not erase flash. In one terminal:
+Program the image first with `make flash`. The debug session runs whatever is already in flash. `make DEBUG=1` rebuilds that image with `-Og`. In one terminal:
 
 ```sh
 make debug-server
 ```
 
-In another:
+starts AVaRICE for the Dragon on port 4242 at 250 kHz and does not write flash. In another:
 
 ```sh
 make gdb
 ```
 
-`tools/gdbinit` connects to `:4242`, allows 4 hardware breakpoints and 2 watchpoints, and does not issue `load`. With BOOTRST still set, the bootloader runs after reset; `break main` then `continue` stops in the application. The launch configuration "AVR Dragon JTAG" attaches to the same port and expects `make debug-server` to be running already.
+`make gdb` and the launch configuration "AVR Dragon JTAG" both use `build/stepper-interface.elf`, not the blink image. `tools/gdbinit` connects to `:4242`, allows 4 hardware breakpoints and 2 watchpoints, and does not issue `load`. With BOOTRST still set, the bootloader runs after reset; `break main` then `continue` stops in the application. The launch configuration expects `make debug-server` to be running already.
 
 When ISP is the only programming path and the bootloader should stay out of reset:
 
@@ -151,7 +151,7 @@ When ISP is the only programming path and the bootloader should stay out of rese
 make fuses-jtag-noboot ALLOW_FUSE_WRITE=1     # high fuse 0x19
 ```
 
-On the 1284P the JTAG pins are PC2 (TCK), PC3 (TMS), PC4 (TDO), and PC5 (TDI). That board file will not write fuses until you put measured values in it.
+On the 1284P the JTAG pins are PC2 (TCK), PC3 (TMS), PC4 (TDO), and PC5 (TDI). `make debug-server` and `make gdb` use that board file too. It will not write fuses until you put measured values in it.
 
 ## FreeRTOS
 
