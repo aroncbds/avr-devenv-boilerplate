@@ -86,7 +86,7 @@ else
 Q := @
 endif
 
-.PHONY: all clean help toolchain size lst \
+.PHONY: all clean help toolchain size lst compile-commands \
 	blink flash flash-blink flash-usb flash-isp flash-jtag \
 	fuses-read fuses-jtag fuses-noboot fuses-jtag-noboot fuses-stock \
 	debug-server gdb deps
@@ -95,7 +95,7 @@ endif
 .DELETE_ON_ERROR:
 .SUFFIXES:
 
-all: $(ELF) $(HEX) $(LSS)
+all: compile-commands $(ELF) $(HEX) $(LSS)
 
 deps: $(STAMP)
 
@@ -124,7 +124,16 @@ $(LSS): $(ELF)
 	$(Q)echo "LST $@"
 	$(Q)$(OBJDUMP) -h -S $< > $@
 
-blink: $(BLINK_HEX)
+blink: compile-commands $(BLINK_HEX)
+
+compile-commands:
+	@mkdir -p '$(BUILD)'
+	$(file >$(BUILD)/.app-cflags,$(APP_CFLAGS))
+	$(file >$(BUILD)/.kernel-cflags,$(KERNEL_CFLAGS))
+	$(file >$(BUILD)/.app-files,$(APP_CFLAGS_SRC))
+	$(file >$(BUILD)/.kernel-files,$(KERNEL_SRC))
+	@CC='$(CC)' DIRECTORY='$(CURDIR)' BUILD='$(BUILD)' \
+	sh tools/gen-compile-commands.sh '$(CURDIR)/compile_commands.json'
 
 $(BLINK_ELF): $(BLINK_OBJ)
 	$(Q)echo "LD  $@"
@@ -280,6 +289,7 @@ help:
 	@echo "  make BOARD=atmega1284p       build the 1284P template"
 	@echo "  make DEBUG=1                 build with -Og"
 	@echo "  make size                    print memory use"
+	@echo "  make compile-commands        refresh compile_commands.json for IntelliSense"
 	@echo "  make blink                   build the one-second LED blink smoke test"
 	@echo "  make flash                   USB bootloader via $(USB_PROGRAMMER) on $(USB_PORT)"
 	@echo "  make flash-blink             flash the blink test through the USB bootloader"
