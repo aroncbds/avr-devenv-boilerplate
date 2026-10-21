@@ -14,11 +14,12 @@ BOOTLOADER ?= 1
 HEAP_SIZE := 4096
 THREE_BYTE_PC := 1
 
-# USB upload through the 16U2 bridge. Official boards enumerate as ttyACM0;
-# CH340 clones usually enumerate as ttyUSB0.
+# USB upload through the serial bridge. Official boards enumerate as ttyACM0
+# (16U2). CH340 clones enumerate as ttyUSB0. Prefer a node that exists.
+# Override with USB_PORT=/dev/ttyUSB0.
 USB_PROGRAMMER := wiring
 USB_BAUD := 115200
-USB_PORT ?= /dev/ttyACM0
+USB_PORT ?= $(shell if [ -e /dev/ttyACM0 ]; then echo /dev/ttyACM0; elif [ -e /dev/ttyUSB0 ]; then echo /dev/ttyUSB0; else echo /dev/ttyACM0; fi)
 
 ISP_PROGRAMMER := dragon_isp
 JTAG_PROGRAMMER := dragon_jtag

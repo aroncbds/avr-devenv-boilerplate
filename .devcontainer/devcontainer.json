@@ -5,6 +5,21 @@
   },
   "workspaceFolder": "/workspace",
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
+  // Host /dev stays at /dev/host-dev so the container's own pts and null
+  // devices are left alone. The cgroup rules allow opening the nodes.
+  //   166 ttyACM (16U2), 188 ttyUSB (CH340), 189 USB bus (AVR Dragon)
+  // --device=/dev/ttyUSB0 is not used: Docker refuses to start when that
+  // node is missing. A dangling link is harmless; plugging the board in
+  // later makes it appear on the host mount.
+  "runArgs": [
+    "--device-cgroup-rule=c 166:* rmw",
+    "--device-cgroup-rule=c 188:* rmw",
+    "--device-cgroup-rule=c 189:* rmw"
+  ],
+  "mounts": [
+    "source=/dev,target=/dev/host-dev,type=bind"
+  ],
+  "postStartCommand": "sh .devcontainer/host-dev-links.sh",
   "postCreateCommand": "make all",
   "customizations": {
     "vscode": {
@@ -22,10 +37,5 @@
         ]
       }
     }
-  },
-  // USB is not mounted by default: this WSL environment has no /dev/bus/usb
-  // until a device is attached, and a missing mount stops the container.
-  // After `usbipd attach --wsl`, uncomment both lines and rebuild the container.
-  // "runArgs": ["--privileged"],
-  // "mounts": ["source=/dev/bus/usb,target=/dev/bus/usb,type=bind"]
+  }
 }

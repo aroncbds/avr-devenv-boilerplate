@@ -34,7 +34,7 @@ CFLAGS += -Wall -Wextra -Wundef -Wstrict-prototypes -Wmissing-prototypes
 APP_CFLAGS := $(CPPFLAGS) $(CFLAGS) -Werror
 KERNEL_CFLAGS := $(CPPFLAGS) $(CFLAGS)
 
-LDFLAGS := -mmcu=$(MCU) -Wl,--gc-sections -Wl,-Map,$(BUILD)/$(TARGET).map
+LDFLAGS := -mmcu=$(MCU) -Wl,--gc-sections
 
 ifeq ($(BOOTLOADER),1)
 APP_FLASH_LIMIT := $(shell expr $(FLASH_SIZE) - $(BOOTLOADER_SIZE))
@@ -48,6 +48,13 @@ APP_SRC := \
 	src/console.c \
 	src/led.c \
 	src/hooks.c
+
+# Bare-metal LED blink. Separate image so it does not pull in FreeRTOS.
+BLINK_SRC := \
+	src/blink.c \
+	src/led.c
+
+APP_CFLAGS_SRC := $(APP_SRC) src/blink.c
 
 KERNEL_SRC := \
 	$(FREERTOS)/tasks.c \
@@ -63,6 +70,11 @@ SRC := $(APP_SRC) $(KERNEL_SRC)
 OBJ := $(patsubst %.c,$(BUILD)/%.o,$(SRC))
 DEP := $(OBJ:.o=.d)
 
+BLINK_OBJ := $(patsubst %.c,$(BUILD)/%.o,$(BLINK_SRC))
+BLINK_DEP := $(BLINK_OBJ:.o=.d)
+BLINK_ELF := $(BUILD)/blink.elf
+BLINK_HEX := $(BUILD)/blink.hex
+
 ELF := $(BUILD)/$(TARGET).elf
 HEX := $(BUILD)/$(TARGET).hex
 LSS := $(BUILD)/$(TARGET).lss
@@ -75,7 +87,7 @@ Q := @
 endif
 
 .PHONY: all clean help toolchain size lst \
-	flash flash-isp flash-jtag \
+	blink flash flash-blink flash-usb flash-isp flash-jtag \
 	fuses-read fuses-jtag fuses-noboot fuses-jtag-noboot fuses-stock \
 	debug-server gdb deps
 
@@ -95,14 +107,14 @@ $(OBJ): $(STAMP)
 $(BUILD)/%.o: %.c
 	@mkdir -p $(dir $@)
 	$(Q)echo "CC  $<"
-	$(Q)$(CC) $(if $(filter $(APP_SRC),$<),$(APP_CFLAGS),$(KERNEL_CFLAGS)) -MMD -MP -c $< -o $@
+	$(Q)$(CC) $(if $(filter $(APP_CFLAGS_SRC),$<),$(APP_CFLAGS),$(KERNEL_CFLAGS)) -MMD -MP -c $< -o $@
 
 $(ELF): $(OBJ)
 	$(Q)echo "LD  $@"
-	$(Q)$(CC) $(LDFLAGS) $(OBJ) -o $@
+	$(Q)$(CC) $(LDFLAGS) -Wl,-Map,$(BUILD)/$(TARGET).map $(OBJ) -o $@
 	$(Q)ln -sfn $(BOARD)/$(TARGET).elf build/$(TARGET).elf
 	$(Q)$(SIZE) -C --mcu=$(MCU) $@
-	$(Q)$(MAKE) --no-print-directory -f $(firstword $(MAKEFILE_LIST)) check-image ELF=$@
+	$(Q)$(MAKE) --no-print-directory -f $(firstword $(MAKEFILE_LIST)) check-image IMAGE=$@
 
 $(HEX): $(ELF)
 	$(Q)echo "HEX $@"
@@ -112,10 +124,22 @@ $(LSS): $(ELF)
 	$(Q)echo "LST $@"
 	$(Q)$(OBJDUMP) -h -S $< > $@
 
-# Called with ELF= so the limits for the board that was just linked are used.
+blink: $(BLINK_HEX)
+
+$(BLINK_ELF): $(BLINK_OBJ)
+	$(Q)echo "LD  $@"
+	$(Q)$(CC) $(LDFLAGS) -Wl,-Map,$(BUILD)/blink.map $(BLINK_OBJ) -o $@
+	$(Q)$(SIZE) -C --mcu=$(MCU) $@
+	$(Q)$(MAKE) --no-print-directory -f $(firstword $(MAKEFILE_LIST)) check-image IMAGE=$@ THREE_BYTE_PC=0
+
+$(BLINK_HEX): $(BLINK_ELF)
+	$(Q)echo "HEX $@"
+	$(Q)$(OBJCOPY) -O ihex -R .eeprom $< $@
+
+# Called with IMAGE= so the limits for the board that was just linked are used.
 check-image:
-	@prog=$$($(SIZE) -C --mcu=$(MCU) $(ELF) | awk '/^Program:/{print $$2}'); \
-	data=$$($(SIZE) -C --mcu=$(MCU) $(ELF) | awk '/^Data:/{print $$2}'); \
+	@prog=$$($(SIZE) -C --mcu=$(MCU) $(IMAGE) | awk '/^Program:/{print $$2}'); \
+	data=$$($(SIZE) -C --mcu=$(MCU) $(IMAGE) | awk '/^Data:/{print $$2}'); \
 	if [ -z "$$prog" ] || [ -z "$$data" ]; then \
 		echo "error: could not read avr-size output" >&2; \
 		exit 1; \
@@ -131,7 +155,7 @@ check-image:
 	fi; \
 	if [ "$(THREE_BYTE_PC)" = "1" ]; then \
 		found=0; \
-		for hex in $$(awk '$$1 == ".lowtext" { print $$2 }' $(ELF:.elf=.map)); do \
+		for hex in $$(awk '$$1 == ".lowtext" { print $$2 }' $(IMAGE:.elf=.map)); do \
 			found=1; \
 			addr=$$(printf '%d' "$$hex"); \
 			if [ "$$addr" -ge 131072 ]; then \
@@ -156,16 +180,38 @@ toolchain:
 	avarice --version 2>&1 | head -n 2
 
 flash: $(HEX)
+	$(MAKE) --no-print-directory -f $(firstword $(MAKEFILE_LIST)) flash-usb HEX_FILE=$(HEX)
+
+flash-blink: $(BLINK_HEX)
+	$(MAKE) --no-print-directory -f $(firstword $(MAKEFILE_LIST)) flash-usb HEX_FILE=$(BLINK_HEX)
+
 ifeq ($(USB_PROGRAMMER),)
+flash-usb:
 	@echo "This board file has no USB programmer. Use flash-isp, or set USB_PROGRAMMER." >&2
 	@exit 1
 else
-	@if [ ! -e "$(USB_PORT)" ]; then \
-		echo "Serial port $(USB_PORT) is not present." >&2; \
-		echo "Attach the board (on WSL: usbipd) or pass USB_PORT=/dev/ttyUSB0." >&2; \
+flash-usb:
+	@if [ -z "$(HEX_FILE)" ]; then \
+		echo "flash-usb needs HEX_FILE." >&2; \
 		exit 1; \
 	fi
-	$(AVRDUDE) -p $(AVRDUDE_MCU) -c $(USB_PROGRAMMER) -P $(USB_PORT) -b $(USB_BAUD) -D -U flash:w:$(HEX):i
+	@if [ ! -e "$(USB_PORT)" ]; then \
+		echo "Serial port $(USB_PORT) is not present in container $$(hostname)." >&2; \
+		if [ ! -d /dev/host-dev ]; then \
+			echo "WSL can have /dev/ttyUSB0 while this container does not." >&2; \
+			echo "/dev/host-dev is missing, so this container was created without the current devcontainer mounts." >&2; \
+			echo "Use Dev Containers: Rebuild Container. A reload keeps container $$(hostname)." >&2; \
+			echo "After the rebuild the shell prompt shows a new id, and ls /dev/ttyUSB0 succeeds." >&2; \
+		elif [ ! -e /dev/host-dev/ttyUSB0 ] && [ ! -e /dev/host-dev/ttyACM0 ]; then \
+			echo "Host /dev is mounted at /dev/host-dev, but it has neither ttyUSB0 nor ttyACM0." >&2; \
+			echo "The Docker daemon is not the WSL distro where usbipd attached the CH340." >&2; \
+		else \
+			echo "A serial node is under /dev/host-dev. Pass it as USB_PORT=." >&2; \
+			ls -l /dev/host-dev/ttyUSB0 /dev/host-dev/ttyACM0 >&2 || true; \
+		fi; \
+		exit 1; \
+	fi
+	$(AVRDUDE) -p $(AVRDUDE_MCU) -c $(USB_PROGRAMMER) -P $(USB_PORT) -b $(USB_BAUD) -D -U flash:w:$(HEX_FILE):i
 endif
 
 ifeq ($(ALLOW_BOOTLOADER_ERASE),1)
@@ -234,7 +280,9 @@ help:
 	@echo "  make BOARD=atmega1284p       build the 1284P template"
 	@echo "  make DEBUG=1                 build with -Og"
 	@echo "  make size                    print memory use"
+	@echo "  make blink                   build the one-second LED blink smoke test"
 	@echo "  make flash                   USB bootloader via $(USB_PROGRAMMER) on $(USB_PORT)"
+	@echo "  make flash-blink             flash the blink test through the USB bootloader"
 	@echo "  make flash-isp ALLOW_BOOTLOADER_ERASE=1"
 	@echo "  make flash-jtag ALLOW_BOOTLOADER_ERASE=1"
 	@echo "  make fuses-read              read fuses over Dragon ISP"
@@ -260,4 +308,4 @@ fi
 @echo "$(1)"
 endef
 
--include $(DEP)
+-include $(DEP) $(BLINK_DEP)

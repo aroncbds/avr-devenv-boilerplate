@@ -18,6 +18,12 @@
       "problemMatcher": []
     },
     {
+      "label": "flash blink",
+      "type": "shell",
+      "command": "make flash-blink",
+      "problemMatcher": []
+    },
+    {
       "label": "clean",
       "type": "shell",
       "command": "make clean",

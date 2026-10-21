@@ -45,13 +45,9 @@ Stack sizes in this port are bytes (`StackType_t` is `uint8_t`). The Mega heap i
 
 ## USB flashing
 
-The Mega's bootloader speaks stk500v2. `make flash` calls avrdude's `wiring` programmer at 115200 baud on `/dev/ttyACM0` and does not erase the bootloader. The link reserves the top 8 KiB (text region of 253952 bytes). CH340 clones usually need:
+The Mega's bootloader speaks stk500v2. `make flash` calls avrdude's `wiring` programmer at 115200 baud and does not erase the bootloader. The link reserves the top 8 KiB (text region of 253952 bytes). The port is `/dev/ttyACM0` when that node exists (official Mega, 16U2) and `/dev/ttyUSB0` otherwise (CH340 clones). Override with `USB_PORT=`.
 
-```sh
-make flash USB_PORT=/dev/ttyUSB0
-```
-
-On WSL2, attach the board from Windows first:
+On WSL2, attach the board to the same distro that runs Docker:
 
 ```sh
 usbipd list
@@ -59,7 +55,7 @@ usbipd bind --busid <id>
 usbipd attach --wsl --busid <id>
 ```
 
-The dev container does not mount USB until a device exists, because a missing `/dev/bus/usb` would stop the container from starting. After `usbipd attach`, uncomment `runArgs` and `mounts` in `.devcontainer/devcontainer.json` and rebuild the container. Create the container after the serial node exists; a node that appears later is not visible inside an already-running container.
+Confirm the node there (`ls /dev/ttyUSB0 /dev/ttyACM0`). The dev container does not share WSL's `/dev`. It bind-mounts that directory at `/dev/host-dev` and links `ttyACM0`, `ttyUSB0`, and `bus/usb` into its own `/dev`. Rebuild the container once so those mounts exist. A board plugged in afterward shows up through the links. Attaching the USB device to a different WSL distro than the one running Docker leaves it invisible here.
 
 ## Another AVR
 
