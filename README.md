@@ -1,6 +1,4 @@
-# Stepper interface
-
-AVR operator interface for an HBS86H stepper driver, aimed at semi-automatic motion control.
+# AVR development environment template
 
 This tree is the C99 baseline: an Arduino Mega 2560 (ATmega2560 at 16 MHz), avr-libc, avr-gcc, FreeRTOS, USB bootloader flashing, and AVR Dragon ISP/JTAG for the point where the bootloader comes off. A second board file is the starting point for an ATmega1284P or another AVR.
 
