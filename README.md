@@ -109,39 +109,71 @@ make fuses-stock ALLOW_FUSE_WRITE=1           # back to the Arduino Mega fuse by
 
 ## AVR Dragon, JTAG
 
-Stock Mega high fuse `0xD8` has JTAG and on-chip debug switched off. Fuse bits are active-low: a programmed bit is 0.
+A debug session uses two Dragon headers, in this order. Stock Mega high fuse `0xD8` has JTAG and on-chip debug off, so ISP writes that fuse first. The debug server then talks JTAG. The Mega has no 10-pin JTAG socket; those signals are wires to analog A4–A7, RESET, 5V, and GND. Power the Mega from its own USB port. The Dragon does not power the target.
+
+### Enable JTAG over ISP
+
+Plug the Dragon ISP 6-pin cable onto the ICSP header next to the ATmega2560. Pin 1 is MISO on both, and it is marked on the Dragon and on the Mega. The 6-pin header beside the USB connector programs the 16U2, not the 2560.
+
+Attach the Dragon (USB id `03eb:2107`) with the same `usbipd` commands as the serial board, to the distro that runs Docker. `tools/99-avr-dragon.rules` is the udev rule for a native Linux host. On WSL the usbip node is often root-owned; the container runs as root, so the rule is not required there. avrdude and AVaRICE open the Dragon through `/dev/bus/usb`, which this container has only after **Dev Containers: Rebuild Container**.
 
 ```sh
+make fuses-read
 make fuses-jtag ALLOW_FUSE_WRITE=1
 ```
 
-writes high fuse `0x18`. That enables OCD and JTAG, leaves SPI programming enabled, and leaves the bootloader in place, so `make flash` still works. Analog A4–A7 become the JTAG port:
+`fuses-read` prints the three fuse bytes and writes nothing. `fuses-jtag` writes high fuse `0x18`. Fuse bits are active-low: a programmed bit is 0. That enables OCD and JTAG, leaves SPI programming enabled, and leaves the bootloader in place, so `make flash` still works. Analog A4–A7 are then the JTAG port and are no longer analog inputs.
 
-| Signal | Mega pin |
-| --- | --- |
-| TCK | PF4, analog A4 |
-| TMS | PF5, analog A5 |
-| TDO | PF6, analog A6 |
-| TDI | PF7, analog A7 |
-| nSRST | RESET |
+### JTAG cable
 
-Dragon 10-pin JTAG, looking at the plug: 1 TCK, 2 GND, 3 TDO, 4 VTref, 5 TMS, 6 nSRST, 7 VCC, 9 TDI, 10 GND. Pin 8 (nTRST) is not used on this AVR. VTref and VCC go to 5 V.
+Pin 1 of the Dragon 10-pin JTAG header is marked on the silkscreen. Count from that pin. Pins 7 and 8 stay open.
 
-`tools/99-avr-dragon.rules` is the udev rule for USB id `03eb:2107`. On WSL the usbip node is often root-owned; the container runs as root, so the rule matters on a native Linux host. Attach the Dragon with the same `usbipd` commands as the serial board, to the distro that runs Docker. AVaRICE opens it through `/dev/bus/usb`, which this container has only after **Dev Containers: Rebuild Container**.
+| Dragon pin | Signal | Mega |
+| --- | --- | --- |
+| 1 | TCK | PF4, analog A4 |
+| 2 | GND | GND |
+| 3 | TDO | PF6, analog A6 |
+| 4 | VTref | 5V |
+| 5 | TMS | PF5, analog A5 |
+| 6 | nSRST | RESET |
+| 7 | leave open | |
+| 8 | leave open | |
+| 9 | TDI | PF7, analog A7 |
+| 10 | GND | GND |
 
-Program the image first with `make flash`. The debug session runs whatever is already in flash. `make DEBUG=1` rebuilds that image with `-Og`. In one terminal:
+VTref lets the Dragon read the target voltage and set its level shifters. It draws under 1 mA and does not power the Mega. Pin 7 is unconnected on the Dragon and must stay open. Pin 8 (nTRST) is unused on this AVR. Connect both GND pins. nSRST lets the Dragon reset the chip, which matters if firmware later sets the JTD bit and turns JTAG off. Both cables can stay plugged in. Fuse commands use the ISP header; the debug server uses the JTAG header. Do not run avrdude and AVaRICE at the same time.
+
+### Session
+
+Program the image first. The debug server does not write flash; it debugs whatever is already there. `make DEBUG=1` rebuilds with `-Og` and keeps `-g`.
+
+```sh
+make DEBUG=1
+make flash
+```
+
+In one terminal:
 
 ```sh
 make debug-server
 ```
 
-starts AVaRICE for the Dragon on port 4242 at 250 kHz and does not write flash. In another:
+starts AVaRICE (`avarice -g -j usb --part atmega2560 -B 250 :4242`). It listens on port 4242 at 250 kHz and does not erase or program. Override the rate with `JTAG_BITRATE=` (Dragon range 22–6400) and the port with `GDB_PORT=`.
+
+In another terminal:
 
 ```sh
 make gdb
 ```
 
-`make gdb` and the launch configuration "AVR Dragon JTAG" both use `build/stepper-interface.elf`, not the blink image. `tools/gdbinit` connects to `:4242`, allows 4 hardware breakpoints and 2 watchpoints, and does not issue `load`. With BOOTRST still set, the bootloader runs after reset; `break main` then `continue` stops in the application. The launch configuration expects `make debug-server` to be running already.
+`make gdb` and the launch configuration "AVR Dragon JTAG" both use `build/stepper-interface.elf`, not the blink image. `tools/gdbinit` connects to `:4242`, allows 4 hardware breakpoints and 2 watchpoints, and does not issue `load`. With BOOTRST still set, the bootloader runs after reset. Stop in the application with:
+
+```
+break main
+continue
+```
+
+The launch configuration sets that breakpoint itself and expects `make debug-server` to be running already.
 
 When ISP is the only programming path and the bootloader should stay out of reset:
 
